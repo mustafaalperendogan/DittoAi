@@ -83,6 +83,7 @@ BEGIN_MESSAGE_MAP(CMainFrame, CFrameWnd)
 	ON_MESSAGE(WM_PASTE_CLIP, OnPasteClip)
 	ON_MESSAGE(WM_EDIT_CLIP, OnEditClip)
 	ON_COMMAND(ID_AI_SETTINGS, &CMainFrame::OnAiSettings)
+	ON_COMMAND(ID_AI_REQUESTS, &CMainFrame::OnAiRequests)
 
 	ON_WM_SETFOCUS()
 END_MESSAGE_MAP()
@@ -1251,23 +1252,15 @@ void CMainFrame::OnAiSettings()
 	CAiAssistant::Instance().ShowSettings();
 }
 
+void CMainFrame::OnAiRequests()
+{
+	CAiAssistant::Instance().ShowRequests();
+}
+
 void CMainFrame::AddAiTrayMenuItem()
 {
-	CMenu *pTrayMenu = m_trayIcon.GetMenu().GetSubMenu(0);
-	if (pTrayMenu == NULL || pTrayMenu->GetMenuState(ID_AI_SETTINGS, MF_BYCOMMAND) != (UINT)-1)
-	{
-		return;
-	}
-
-	CString text(_T("Yapay zeka ayarlar\u0131..."));
-	if (pTrayMenu->GetMenuState(ID_FIRST_OPTION, MF_BYCOMMAND) != (UINT)-1)
-	{
-		pTrayMenu->InsertMenu(ID_FIRST_OPTION, MF_BYCOMMAND | MF_STRING, ID_AI_SETTINGS, text);
-	}
-	else
-	{
-		pTrayMenu->InsertMenu(0, MF_BYPOSITION | MF_STRING, ID_AI_SETTINGS, text);
-	}
+	// "Yapay zeka ayarlari..." and below it "Yapay zeka istekleri...", above Options
+	CAiAssistant::AddMenuItems(m_trayIcon.GetMenu().GetSubMenu(0), ID_FIRST_OPTION);
 }
 
 void CMainFrame::OnFirstNewclip()

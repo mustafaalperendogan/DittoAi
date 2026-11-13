@@ -1,6 +1,8 @@
 ﻿#include "stdafx.h"
 #include "AiToastWnd.h"
 
+#include <algorithm>
+
 namespace
 {
 	const UINT_PTR TIMER_AUTO_HIDE = 1;
@@ -8,6 +10,7 @@ namespace
 
 	const int TOAST_WIDTH = 360;
 	const int TOAST_MARGIN = 16;
+	const int TOAST_GAP = 8;			// between stacked toasts
 	const int TOAST_PADDING = 14;
 	const int ACCENT_WIDTH = 4;
 	const int MAX_BODY_HEIGHT = 140;
@@ -40,8 +43,9 @@ BEGIN_MESSAGE_MAP(CAiToastWnd, CWnd)
 	ON_WM_MOUSEACTIVATE()
 END_MESSAGE_MAP()
 
-CAiToastWnd::CAiToastWnd()
-	: m_kind(AiToastKind::Info), m_clickHint(false), m_clickTarget(NULL), m_dpi(96), m_fontDpi(0), m_alpha(FULL_ALPHA)
+CAiToastWnd::CAiToastWnd(CAiToastStack *stack)
+	: m_stack(stack), m_key(0), m_shown(false), m_order(0), m_monitor(NULL), m_position(0),
+	m_kind(AiToastKind::Info), m_clickHint(false), m_dpi(96), m_fontDpi(0), m_alpha(FULL_ALPHA)
 {
 }
 
@@ -136,11 +140,11 @@ CSize CAiToastWnd::CalcLayout(CDC &dc, int width, CRect &titleRect, CRect &bodyR
 	return CSize(width, height + Scale(TOAST_PADDING));
 }
 
-void CAiToastWnd::ShowToast(const CString &title, const CString &body, AiToastKind kind, UINT timeoutMs, int position, bool clickHint)
+bool CAiToastWnd::SetContent(const CString &title, const CString &body, AiToastKind kind, UINT timeoutMs, int position, bool clickHint)
 {
 	if (EnsureCreated() == false)
 	{
-		return;
+		return false;
 	}
 
 	KillTimer(TIMER_AUTO_HIDE);
@@ -150,47 +154,53 @@ void CAiToastWnd::ShowToast(const CString &title, const CString &body, AiToastKi
 	m_body = body;
 	m_kind = kind;
 	m_clickHint = clickHint;
+	m_position = position;
 
-	// Show on the monitor the user is working on (the one under the mouse).
-	CPoint cursor;
-	::GetCursorPos(&cursor);
-	HMONITOR hMonitor = ::MonitorFromPoint(cursor, MONITOR_DEFAULTTOPRIMARY);
-	MONITORINFO mi = { sizeof(MONITORINFO) };
-	::GetMonitorInfo(hMonitor, &mi);
-	CRect work(mi.rcWork);
-
-	// Move onto the target monitor first so the window DPI matches that monitor.
-	SetWindowPos(NULL, work.left, work.top, 0, 0, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSIZE);
-	m_dpi = ::GetDpiForWindow(m_hWnd);
-	if (m_dpi <= 0)
+	if (!m_shown)
 	{
-		m_dpi = 96;
+		// Show on the monitor the user is working on (the one under the mouse).
+		// A toast that is already visible is updated where it is.
+		CPoint cursor;
+		::GetCursorPos(&cursor);
+		m_monitor = ::MonitorFromPoint(cursor, MONITOR_DEFAULTTOPRIMARY);
+		MONITORINFO mi = { sizeof(MONITORINFO) };
+		::GetMonitorInfo(m_monitor, &mi);
+		m_work = mi.rcWork;
+
+		// Move onto the target monitor first so the window DPI matches that monitor.
+		SetWindowPos(NULL, m_work.left, m_work.top, 0, 0, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSIZE);
+		m_dpi = ::GetDpiForWindow(m_hWnd);
+		if (m_dpi <= 0)
+		{
+			m_dpi = 96;
+		}
+		CreateFonts(m_dpi);
+		m_shown = true;
 	}
-	CreateFonts(m_dpi);
 
 	CClientDC dc(this);
-	CSize size = CalcLayout(dc, Scale(TOAST_WIDTH), m_titleRect, m_bodyRect, m_hintRect);
-
-	bool left = position == 2 || position == 3;
-	bool top = position == 1 || position == 3;
-	int x = left ? work.left + Scale(TOAST_MARGIN) : work.right - size.cx - Scale(TOAST_MARGIN);
-	int y = top ? work.top + Scale(TOAST_MARGIN) : work.bottom - size.cy - Scale(TOAST_MARGIN);
+	m_size = CalcLayout(dc, Scale(TOAST_WIDTH), m_titleRect, m_bodyRect, m_hintRect);
 
 	m_alpha = FULL_ALPHA;
 	SetLayeredWindowAttributes(0, (BYTE)m_alpha, LWA_ALPHA);
-	SetWindowPos(&wndTopMost, x, y, size.cx, size.cy, SWP_NOACTIVATE | SWP_SHOWWINDOW);
 	Invalidate();
-	UpdateWindow();
 
 	if (timeoutMs > 0)
 	{
 		SetTimer(TIMER_AUTO_HIDE, timeoutMs, NULL);
 	}
+	return true;
+}
+
+void CAiToastWnd::PlaceAt(int x, int y)
+{
+	SetWindowPos(&wndTopMost, x, y, m_size.cx, m_size.cy, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+	UpdateWindow();
 }
 
 void CAiToastWnd::HideToast(bool fade)
 {
-	if (m_hWnd == NULL)
+	if (m_hWnd == NULL || !m_shown)
 	{
 		return;
 	}
@@ -203,8 +213,22 @@ void CAiToastWnd::HideToast(bool fade)
 	}
 	else
 	{
-		KillTimer(TIMER_FADE_OUT);
-		ShowWindow(SW_HIDE);
+		HideNow(true);
+	}
+}
+
+void CAiToastWnd::HideNow(bool notifyStack)
+{
+	KillTimer(TIMER_AUTO_HIDE);
+	KillTimer(TIMER_FADE_OUT);
+	ShowWindow(SW_HIDE);
+	m_shown = false;
+	m_alpha = FULL_ALPHA;
+	SetLayeredWindowAttributes(0, (BYTE)m_alpha, LWA_ALPHA);
+
+	if (notifyStack && m_stack != nullptr)
+	{
+		m_stack->OnToastHidden();	// the toasts above move into the free place
 	}
 }
 
@@ -221,10 +245,7 @@ void CAiToastWnd::OnTimer(UINT_PTR nIDEvent)
 		m_alpha -= 20;
 		if (m_alpha <= 0)
 		{
-			KillTimer(TIMER_FADE_OUT);
-			ShowWindow(SW_HIDE);
-			m_alpha = FULL_ALPHA;
-			SetLayeredWindowAttributes(0, (BYTE)m_alpha, LWA_ALPHA);
+			HideNow(true);
 		}
 		else
 		{
@@ -238,10 +259,12 @@ void CAiToastWnd::OnTimer(UINT_PTR nIDEvent)
 
 void CAiToastWnd::OnLButtonUp(UINT nFlags, CPoint point)
 {
-	HideToast(false);
-	if (m_clickTarget != NULL)
+	int key = m_key;
+	bool clickHint = m_clickHint;
+	HideNow(true);
+	if (m_stack != nullptr)
 	{
-		::PostMessage(m_clickTarget, WM_AI_TOAST_CLICKED, 0, 0);
+		m_stack->OnToastClicked(key, clickHint);
 	}
 }
 
@@ -304,4 +327,145 @@ void CAiToastWnd::OnPaint()
 
 	paintDC.BitBlt(0, 0, client.Width(), client.Height(), &dc, 0, 0, SRCCOPY);
 	dc.SelectObject(pOldBitmap);
+}
+
+// ===========================================================================
+// CAiToastStack
+
+void CAiToastStack::Show(int key, const CString &title, const CString &body, AiToastKind kind, UINT timeoutMs, int position, bool clickHint)
+{
+	// the visible toast with this key, else a hidden one to reuse, else a new one
+	CAiToastWnd *toast = nullptr;
+	for (auto &t : m_toasts)
+	{
+		if (t->IsShown() && t->Key() == key)
+		{
+			toast = t.get();
+			break;
+		}
+	}
+	if (toast == nullptr)
+	{
+		for (auto &t : m_toasts)
+		{
+			if (!t->IsShown())
+			{
+				toast = t.get();
+				break;
+			}
+		}
+	}
+	if (toast == nullptr)
+	{
+		m_toasts.push_back(std::make_unique<CAiToastWnd>(this));
+		toast = m_toasts.back().get();
+	}
+
+	if (!toast->IsShown())
+	{
+		toast->m_order = ++m_nextOrder;
+	}
+	toast->SetKey(key);
+	if (toast->SetContent(title, body, kind, timeoutMs, position, clickHint))
+	{
+		Layout();
+	}
+}
+
+void CAiToastStack::Hide(int key, bool fade)
+{
+	for (auto &t : m_toasts)
+	{
+		if (t->IsShown() && t->Key() == key)
+		{
+			t->HideToast(fade);
+		}
+	}
+}
+
+void CAiToastStack::DestroyAll()
+{
+	m_toasts.clear();
+}
+
+void CAiToastStack::OnToastClicked(int key, bool clickHint)
+{
+	if (m_clickTarget != NULL)
+	{
+		::PostMessage(m_clickTarget, WM_AI_TOAST_CLICKED, (WPARAM)key, clickHint ? 1 : 0);
+	}
+}
+
+// Toasts on the same monitor and corner form a column: the oldest sits in the corner,
+// newer ones line up away from it. Called whenever a toast appears, changes size or hides.
+void CAiToastStack::Layout()
+{
+	if (m_inLayout)
+	{
+		return;
+	}
+	m_inLayout = true;
+
+	std::vector<CAiToastWnd *> shown;
+	for (auto &t : m_toasts)
+	{
+		if (t->IsShown())
+		{
+			shown.push_back(t.get());
+		}
+	}
+	std::sort(shown.begin(), shown.end(), [](const CAiToastWnd *a, const CAiToastWnd *b) { return a->Order() < b->Order(); });
+
+	while (!shown.empty())
+	{
+		CAiToastWnd *first = shown.front();
+		std::vector<CAiToastWnd *> column;
+		for (auto it = shown.begin(); it != shown.end();)
+		{
+			if ((*it)->Monitor() == first->Monitor() && (*it)->Position() == first->Position())
+			{
+				column.push_back(*it);
+				it = shown.erase(it);
+			}
+			else
+			{
+				++it;
+			}
+		}
+
+		CRect work = first->WorkArea();
+		int position = first->Position();
+		int margin = first->Scale(TOAST_MARGIN);
+		int gap = first->Scale(TOAST_GAP);
+
+		// more than the screen holds: the oldest give way to the newer ones
+		for (;;)
+		{
+			int height = margin;
+			for (CAiToastWnd *t : column)
+			{
+				height += t->Size().cy + gap;
+			}
+			if (column.size() <= 1 || height <= work.Height())
+			{
+				break;
+			}
+			column.front()->HideNow(false);
+			column.erase(column.begin());
+		}
+
+		bool left = position == 2 || position == 3;
+		bool top = position == 1 || position == 3;
+		int offset = margin;
+		for (CAiToastWnd *t : column)
+		{
+			CSize size = t->Size();
+			int x = left ? work.left + margin : work.right - size.cx - margin;
+			int y = top ? work.top + offset : work.bottom - offset - size.cy;
+			t->PlaceAt(x, y);
+			offset += size.cy + gap;
+		}
+	}
+
+	m_inLayout = false;
 }

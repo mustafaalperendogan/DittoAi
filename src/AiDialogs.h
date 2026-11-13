@@ -160,6 +160,37 @@ protected:
 };
 
 // ---------------------------------------------------------------------------
+// Requests window: every running request and the last finished ones, newest first.
+// Modeless; double click (or Enter) opens the details of a request.
+
+class CAiRunsDlg : public CDialog
+{
+public:
+	explicit CAiRunsDlg(std::function<void(int runId)> openDetail);
+
+	void Show(const std::vector<AiRunInfo> &runs, CWnd *pOwner);	// opens or refreshes, brings to front
+	void Update(const std::vector<AiRunInfo> &runs);				// refreshes only if open
+
+protected:
+	virtual BOOL OnInitDialog();
+	virtual void OnOK();
+	virtual void OnCancel();
+
+	DECLARE_MESSAGE_MAP()
+	afx_msg void OnDetails();
+	afx_msg void OnListDblClick(NMHDR *pNMHDR, LRESULT *pResult);
+	afx_msg void OnTimer(UINT_PTR nIDEvent);
+
+	void Fill();
+	void UpdateDurations();
+
+	CAiDialogTemplate m_template;
+	CListCtrl m_list;
+	std::vector<AiRunInfo> m_runs;
+	std::function<void(int)> m_openDetail;
+};
+
+// ---------------------------------------------------------------------------
 // Action editor
 
 class CAiActionDlg : public CDialog

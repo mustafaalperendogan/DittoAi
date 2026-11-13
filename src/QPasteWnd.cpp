@@ -235,6 +235,8 @@ BEGIN_MESSAGE_MAP(CQPasteWnd, CWndEx)
 	ON_COMMAND(ID_MENU_SEARCHQUICKPASTE, OnMenuSearchQuickPaste)
 	ON_COMMAND(ID_MENU_SHOWSTARREDCLIPS, OnMenuShowStarredClips)
 	ON_COMMAND(ID_AI_SEND_CLIP, OnAiSendClip)
+	ON_COMMAND(ID_AI_SETTINGS, OnAiSettings)
+	ON_COMMAND(ID_AI_REQUESTS, OnAiRequests)
 	ON_COMMAND(ID_MENU_CONTAINSTEXTSEARCHONLY, OnMenuSimpleTextSearch)
 	//ON_WM_CTLCOLOR()
 	//ON_WM_ERASEBKGND()
@@ -1795,6 +1797,17 @@ void CQPasteWnd::OnAiSendClip()
 	HWND target = theApp.m_activeWnd.ActiveWnd();
 	HideQPasteWindow(false);
 	CAiAssistant::Instance().SendClip(text, image.get(), target);
+}
+
+// Posted so the menu closes before the (modal) settings window opens; the main frame handles both.
+void CQPasteWnd::OnAiSettings()
+{
+	theApp.m_pMainFrame->PostMessage(WM_COMMAND, ID_AI_SETTINGS, 0);
+}
+
+void CQPasteWnd::OnAiRequests()
+{
+	theApp.m_pMainFrame->PostMessage(WM_COMMAND, ID_AI_REQUESTS, 0);
 }
 
 void CQPasteWnd::AddShowStarredClipsMenuItem(CMenu* pMenu)
@@ -7332,6 +7345,9 @@ void CQPasteWnd::OnSystemButton()
 		theApp.m_Language.UpdateRightClickMenu(cmSubMenu);
 
 		SetMenuChecks(cmSubMenu);
+
+		// added after the language update so the translation files never touch them
+		CAiAssistant::AddMenuItems(cmSubMenu, ID_MENU_OPTIONS);
 
 		cmSubMenu->TrackPopupMenu(TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RIGHTBUTTON, pp.x, pp.y, this, NULL);
 	}

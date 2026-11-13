@@ -1497,6 +1497,14 @@ namespace
 	{
 		t.Control((WORD)0x0081, L"", id, WS_TABSTOP | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_VSCROLL, WS_EX_CLIENTEDGE, x, y, cx, cy);
 	}
+
+	CString FormatSeconds(ULONGLONG ms)
+	{
+		CString text;
+		text.Format(_T("%.1f sn"), ms / 1000.0);
+		text.Replace(_T('.'), _T(','));
+		return text;
+	}
 }
 
 BEGIN_MESSAGE_MAP(CAiDetailDlg, CDialog)
@@ -1605,10 +1613,7 @@ void CAiDetailDlg::Fill()
 	CString time = r.started.Format(_T("%d.%m.%Y %H:%M:%S"));
 	if (!running)
 	{
-		CString duration;
-		duration.Format(_T("%.1f"), r.durationMs / 1000.0);
-		duration.Replace(_T('.'), _T(','));
-		time += _T(" · ") + duration + _T(" sn");
+		time += _T(" · ") + FormatSeconds(r.durationMs);
 	}
 	SetDlgItemText(IDC_D_TIME, time);
 
@@ -1678,4 +1683,224 @@ void CAiDetailDlg::OnCopyResult()
 		}
 	}
 	::CloseClipboard();
+}
+
+// ===========================================================================
+// Requests window
+
+namespace
+{
+	enum { IDC_Q_LIST = 5101, IDC_Q_STATUS, IDC_Q_DETAILS };
+
+	const UINT_PTR TIMER_RUNS_CLOCK = 1;
+
+	CString StateName(AiRunInfo::State state)
+	{
+		switch (state)
+		{
+		case AiRunInfo::State::Running: return _T("Çalışıyor");
+		case AiRunInfo::State::Success: return _T("Tamamlandı");
+		default: return _T("Hata");
+		}
+	}
+
+	CString RunDuration(const AiRunInfo &r)
+	{
+		return FormatSeconds(r.state == AiRunInfo::State::Running ? ::GetTickCount64() - r.startTick : r.durationMs);
+	}
+
+	CString RunContent(const AiRunInfo &r)
+	{
+		CString text;
+		if (r.isImage)
+		{
+			text.Format(_T("Görsel %d × %d"), r.imageWidth, r.imageHeight);
+			return text;
+		}
+		text = r.inputText.Left(300);
+		text.Replace(_T('\r'), _T(' '));
+		text.Replace(_T('\n'), _T(' '));
+		text.Replace(_T('\t'), _T(' '));
+		text.Trim();
+		return text;
+	}
+}
+
+BEGIN_MESSAGE_MAP(CAiRunsDlg, CDialog)
+	ON_BN_CLICKED(IDC_Q_DETAILS, OnDetails)
+	ON_NOTIFY(NM_DBLCLK, IDC_Q_LIST, OnListDblClick)
+	ON_WM_TIMER()
+END_MESSAGE_MAP()
+
+CAiRunsDlg::CAiRunsDlg(std::function<void(int runId)> openDetail)
+	: m_openDetail(openDetail)
+{
+	m_template.Begin(L"Yapay zeka - istekler", 460, 236);
+	m_template.Label(L"Son 10 istek, en yenisi üstte. Çalışan istekler 10'dan fazla olsa da hepsi listelenir. "
+		L"Ayrıntılar için çift tıklayın. Liste Ditto kapanınca silinir.", 7, 7, 446, 16);
+	m_template.ListView(IDC_Q_LIST, 7, 26, 446, 182);
+	m_template.Label(L"", 7, 217, 330, 8, IDC_Q_STATUS);
+	m_template.Button(IDC_Q_DETAILS, L"Ayrıntılar", 346, 214, 50, 14, true);
+	m_template.Button(IDCANCEL, L"Kapat", 403, 214, 50, 14);
+}
+
+void CAiRunsDlg::Show(const std::vector<AiRunInfo> &runs, CWnd *pOwner)
+{
+	m_runs = runs;
+	if (m_hWnd == NULL)
+	{
+		if (!CreateIndirect(m_template.Get(), pOwner))
+		{
+			return;
+		}
+		ModifyStyleEx(0, WS_EX_APPWINDOW);	// taskbar button, so it cannot get lost behind other windows
+	}
+	else
+	{
+		Fill();
+	}
+	ShowWindow(SW_SHOWNORMAL);
+	::SetForegroundWindow(m_hWnd);
+}
+
+void CAiRunsDlg::Update(const std::vector<AiRunInfo> &runs)
+{
+	if (m_hWnd != NULL)
+	{
+		m_runs = runs;
+		Fill();
+	}
+}
+
+BOOL CAiRunsDlg::OnInitDialog()
+{
+	CDialog::OnInitDialog();
+
+	m_list.SubclassDlgItem(IDC_Q_LIST, this);
+	m_list.SetExtendedStyle(LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
+	CRect rc;
+	m_list.GetClientRect(rc);
+	struct { LPCTSTR title; int percent; int format; } columns[] =
+	{
+		{ _T("Durum"), 12, LVCFMT_LEFT }, { _T("Başlangıç"), 11, LVCFMT_LEFT }, { _T("Süre"), 9, LVCFMT_RIGHT },
+		{ _T("Eylem"), 22, LVCFMT_LEFT }, { _T("Model"), 18, LVCFMT_LEFT }, { _T("İçerik"), 27, LVCFMT_LEFT },
+	};
+	for (int i = 0; i < _countof(columns); i++)
+	{
+		m_list.InsertColumn(i, columns[i].title, columns[i].format, rc.Width() * columns[i].percent / 100);
+	}
+
+	Fill();
+	SetTimer(TIMER_RUNS_CLOCK, 1000, NULL);	// running requests show their elapsed time
+	m_list.SetFocus();
+	return FALSE;
+}
+
+void CAiRunsDlg::OnOK()
+{
+	OnDetails();
+}
+
+void CAiRunsDlg::OnCancel()
+{
+	DestroyWindow();
+}
+
+void CAiRunsDlg::Fill()
+{
+	int selectedId = 0;
+	int sel = m_list.GetNextItem(-1, LVNI_SELECTED);
+	if (sel >= 0)
+	{
+		selectedId = (int)m_list.GetItemData(sel);
+	}
+
+	m_list.SetRedraw(FALSE);
+	m_list.DeleteAllItems();
+	int running = 0;
+	sel = -1;
+	for (int i = 0; i < (int)m_runs.size(); i++)
+	{
+		const AiRunInfo &r = m_runs[i];
+		m_list.InsertItem(i, StateName(r.state));
+		m_list.SetItemData(i, (DWORD_PTR)r.id);
+		m_list.SetItemText(i, 1, r.started.Format(_T("%H:%M:%S")));
+		m_list.SetItemText(i, 2, RunDuration(r));
+		m_list.SetItemText(i, 3, r.title);
+		m_list.SetItemText(i, 4, r.modelName);
+		m_list.SetItemText(i, 5, RunContent(r));
+		if (r.id == selectedId)
+		{
+			sel = i;
+		}
+		if (r.state == AiRunInfo::State::Running)
+		{
+			running++;
+		}
+	}
+	if (sel < 0 && m_list.GetItemCount() > 0)
+	{
+		sel = 0;
+	}
+	if (sel >= 0)
+	{
+		m_list.SetItemState(sel, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+	}
+	m_list.SetRedraw(TRUE);
+	m_list.Invalidate();
+
+	CString status;
+	if (m_runs.empty())
+	{
+		status = _T("Henüz istek yok.");
+	}
+	else if (running == 0)
+	{
+		status = _T("Çalışan istek yok.");
+	}
+	else
+	{
+		status.Format(_T("%d istek çalışıyor."), running);
+	}
+	SetDlgItemText(IDC_Q_STATUS, status);
+}
+
+void CAiRunsDlg::UpdateDurations()
+{
+	for (int i = 0; i < m_list.GetItemCount() && i < (int)m_runs.size(); i++)
+	{
+		if (m_runs[i].state == AiRunInfo::State::Running)
+		{
+			m_list.SetItemText(i, 2, RunDuration(m_runs[i]));
+		}
+	}
+}
+
+void CAiRunsDlg::OnTimer(UINT_PTR nIDEvent)
+{
+	if (nIDEvent == TIMER_RUNS_CLOCK)
+	{
+		UpdateDurations();
+		return;
+	}
+	CDialog::OnTimer(nIDEvent);
+}
+
+void CAiRunsDlg::OnDetails()
+{
+	int sel = m_list.GetNextItem(-1, LVNI_SELECTED);
+	if (sel >= 0 && m_openDetail)
+	{
+		m_openDetail((int)m_list.GetItemData(sel));
+	}
+}
+
+void CAiRunsDlg::OnListDblClick(NMHDR *pNMHDR, LRESULT *pResult)
+{
+	const NMITEMACTIVATE *item = (const NMITEMACTIVATE *)pNMHDR;
+	if (item->iItem >= 0 && m_openDetail)
+	{
+		m_openDetail((int)m_list.GetItemData(item->iItem));
+	}
+	*pResult = 0;
 }

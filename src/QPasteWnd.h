@@ -482,6 +482,8 @@ protected:
 	afx_msg void OnMenuSearchQuickPaste();
 	afx_msg void OnMenuShowStarredClips();
 	afx_msg void OnAiSendClip();
+	afx_msg void OnAiSettings();
+	afx_msg void OnAiRequests();
 	afx_msg void OnMenuSimpleTextSearch();
 	afx_msg LRESULT OnPostOptions(WPARAM wParam, LPARAM lParam);
 	afx_msg void OnMakeTopStickyClip();

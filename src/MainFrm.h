@@ -155,5 +155,6 @@ DECLARE_MESSAGE_MAP()public:
     afx_msg LRESULT OnEditClip(WPARAM wParam, LPARAM lParam);
     afx_msg void OnSetFocus(CWnd* pOldWnd);
 	afx_msg void OnAiSettings();
+	afx_msg void OnAiRequests();
 	void AddAiTrayMenuItem();
 };
