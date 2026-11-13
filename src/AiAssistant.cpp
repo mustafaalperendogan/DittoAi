@@ -18,6 +18,8 @@ namespace
 
 	const UINT READ_CLIPBOARD_DELAY_MS = 200;	// let the source app finish its copy
 	const UINT SAVE_FALLBACK_MS = 5000;			// how long to wait for Ditto to save the answer
+	const UINT CLIPBOARD_RETRY_MS = 50;			// another program has the clipboard open: try again after this
+	const ULONGLONG CLIPBOARD_WAIT_MS = 2000;	// ... until this much time has passed
 
 	const int MAX_CLIP_CHARS = 400000;
 	const int MAX_IMAGE_EDGE = 1568;			// larger images are scaled down before sending
@@ -41,6 +43,51 @@ namespace
 		{
 			text = text.Left(maxChars) + _T("…");
 		}
+		return text;
+	}
+
+	// Name of the program that has the clipboard open, empty if it cannot be told.
+	CString ClipboardHolderName()
+	{
+		HWND hWnd = ::GetOpenClipboardWindow();
+		DWORD pid = 0;
+		if (hWnd == NULL || ::GetWindowThreadProcessId(hWnd, &pid) == 0 || pid == 0)
+		{
+			return CString();
+		}
+		if (pid == ::GetCurrentProcessId())
+		{
+			return _T("Ditto");
+		}
+
+		CString name;
+		HANDLE process = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+		if (process != NULL)
+		{
+			TCHAR path[MAX_PATH];
+			DWORD size = MAX_PATH;
+			if (::QueryFullProcessImageName(process, 0, path, &size))
+			{
+				name = path;
+				name = name.Mid(name.ReverseFind(_T('\\')) + 1);
+			}
+			::CloseHandle(process);
+		}
+		if (name.IsEmpty())
+		{
+			name.Format(_T("işlem %u"), pid);
+		}
+		return name;
+	}
+
+	// Error text after the clipboard stayed locked for CLIPBOARD_WAIT_MS; also written to Ditto's log.
+	CString ClipboardBusyText()
+	{
+		CString holder = ClipboardHolderName();
+		CString text;
+		text.Format(_T("Pano %d saniye boyunca açılamadı, şu an %s tarafından kullanılıyor."), (int)(CLIPBOARD_WAIT_MS / 1000),
+			holder.IsEmpty() ? _T("başka bir uygulama") : (LPCTSTR)holder);
+		Log(_T("AI: ") + text);
 		return text;
 	}
 
@@ -260,7 +307,7 @@ CAiAssistant &CAiAssistant::Instance()
 }
 
 CAiAssistant::CAiAssistant()
-	: m_targetWnd(NULL), m_inSettings(false), m_readPending(false), m_runCounter(0), m_savingRunId(0), m_lastClipWrite(0), m_awaitingSave(0),
+	: m_targetWnd(NULL), m_inSettings(false), m_readPending(false), m_readStarted(0), m_runCounter(0), m_savingRunId(0), m_lastClipWrite(0), m_writeStarted(0), m_awaitingSave(0),
 	m_runsDlg([this](int runId) { ShowRunDetail(runId); }), m_hookThread(NULL), m_hookThreadId(0)
 {
 }
@@ -538,6 +585,7 @@ LRESULT CAiAssistant::OnDoubleCopy(WPARAM wParam, LPARAM lParam)
 	// the second Ctrl+C is still being handled by the source app, give it a moment;
 	// meanwhile answers of other requests must not replace the copied content
 	m_readPending = true;
+	m_readStarted = 0;
 	KillTimer(TIMER_READ_CLIPBOARD);
 	SetTimer(TIMER_READ_CLIPBOARD, READ_CLIPBOARD_DELAY_MS, NULL);
 	return 0;
@@ -591,7 +639,24 @@ void CAiAssistant::OnTimer(UINT_PTR nIDEvent)
 
 		CString error;
 		ClipContent content;
-		bool read = ReadClipboard(content, error);
+		bool locked = false;
+		bool read = ReadClipboard(content, error, locked);
+		if (locked)
+		{
+			// another program is reading the clipboard (e.g. Ditto itself or a clipboard sync tool)
+			ULONGLONG now = ::GetTickCount64();
+			if (m_readStarted == 0)
+			{
+				m_readStarted = now;
+			}
+			if (now - m_readStarted < CLIPBOARD_WAIT_MS)
+			{
+				SetTimer(TIMER_READ_CLIPBOARD, CLIPBOARD_RETRY_MS, NULL);
+				return;
+			}
+			error = ClipboardBusyText();
+		}
+		m_readStarted = 0;
 		m_readPending = false;
 		PumpClipboard();	// answers that arrived meanwhile
 		if (!read)
@@ -625,17 +690,12 @@ void CAiAssistant::OnTimer(UINT_PTR nIDEvent)
 	CWnd::OnTimer(nIDEvent);
 }
 
-bool CAiAssistant::ReadClipboard(ClipContent &content, CString &error)
+bool CAiAssistant::ReadClipboard(ClipContent &content, CString &error, bool &locked)
 {
-	bool opened = false;
-	for (int attempt = 0; attempt < 10 && !opened; attempt++)
+	// one attempt only: the caller retries with a timer so Ditto never freezes while waiting
+	locked = ::OpenClipboard(m_hWnd) == FALSE;
+	if (locked)
 	{
-		opened = ::OpenClipboard(m_hWnd) != FALSE;
-		if (!opened) Sleep(30);
-	}
-	if (!opened)
-	{
-		error = _T("Pano başka bir uygulama tarafından kilitli.");
 		return false;
 	}
 
@@ -940,12 +1000,28 @@ void CAiAssistant::PumpClipboard()
 		if (!WriteClipboardText(run->info.result))
 		{
 			InterlockedExchange(&m_awaitingSave, 0);
+
+			// another program has the clipboard open: try again shortly, the answer keeps its place
+			ULONGLONG now = ::GetTickCount64();
+			if (m_writeStarted == 0)
+			{
+				m_writeStarted = now;
+			}
+			if (now - m_writeStarted < CLIPBOARD_WAIT_MS)
+			{
+				m_clipQueue.push_front(id);
+				SetTimer(TIMER_PUMP_CLIPBOARD, CLIPBOARD_RETRY_MS, NULL);
+				return;
+			}
+			m_writeStarted = 0;
+
 			run->info.clipboardStatus = _T("Pano kilitli olduğu için panoya yazılamadı");
-			Notify(NotifyKind::Error, _T("Pano kullanılamıyor"), _T("Model cevap verdi ama pano başka bir uygulama tarafından kilitli."), id);
+			Notify(NotifyKind::Error, _T("Pano kullanılamıyor"), _T("Model cevap verdi ama panoya yazılamadı. ") + ClipboardBusyText(), id);
 			RunChanged(id);
 			continue;
 		}
 
+		m_writeStarted = 0;
 		m_savingRunId = id;
 		m_lastClipWrite = ::GetTickCount64();
 		run->info.clipboardStatus = _T("Panoya kopyalandı");
@@ -1097,24 +1173,20 @@ bool CAiAssistant::WriteClipboardText(const CString &text)
 	memcpy(::GlobalLock(hMem), (LPCWSTR)text, bytes);
 	::GlobalUnlock(hMem);
 
-	for (int attempt = 0; attempt < 10; attempt++)
+	// one attempt only: PumpClipboard retries with a timer so Ditto never freezes while waiting
+	if (!::OpenClipboard(m_hWnd))
 	{
-		if (::OpenClipboard(m_hWnd))
-		{
-			::EmptyClipboard();
-			bool ok = ::SetClipboardData(CF_UNICODETEXT, hMem) != NULL;
-			::CloseClipboard();
-			if (!ok)
-			{
-				::GlobalFree(hMem);
-			}
-			return ok;
-		}
-		Sleep(30);
+		::GlobalFree(hMem);
+		return false;
 	}
-
-	::GlobalFree(hMem);
-	return false;
+	::EmptyClipboard();
+	bool ok = ::SetClipboardData(CF_UNICODETEXT, hMem) != NULL;
+	::CloseClipboard();
+	if (!ok)
+	{
+		::GlobalFree(hMem);
+	}
+	return ok;
 }
 
 void CAiAssistant::Notify(NotifyKind kind, const CString &title, const CString &body, int runId)

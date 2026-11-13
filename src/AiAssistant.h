@@ -81,7 +81,7 @@ protected:
 	void StartHook();
 	void StopHook();
 
-	bool ReadClipboard(ClipContent &content, CString &error);
+	bool ReadClipboard(ClipContent &content, CString &error, bool &locked);	// locked: another program has it open
 	void ShowPicker();
 	void Run(const CString &title, const CString &instruction, const AiModelConfig &model);
 	bool WriteClipboardText(const CString &text);
@@ -110,11 +110,13 @@ protected:
 	HWND m_targetWnd;
 	bool m_inSettings;
 	bool m_readPending;				// a double copy waits to read the clipboard, do not overwrite it now
+	ULONGLONG m_readStarted;		// tick of the first read attempt that found the clipboard locked, 0 = none
 	std::vector<RunState> m_runs;	// every running request and the last finished ones, oldest first
 	int m_runCounter;
 	std::deque<int> m_clipQueue;	// finished runs whose answers wait for the clipboard
 	int m_savingRunId;				// run whose answer is on the clipboard, waiting for Ditto to save it
 	ULONGLONG m_lastClipWrite;		// tick of the last answer written to the clipboard
+	ULONGLONG m_writeStarted;		// tick of the first write attempt that found the clipboard locked, 0 = none
 	volatile LONG m_awaitingSave;
 	CAiDetailDlg m_detail;
 	CAiRunsDlg m_runsDlg;
