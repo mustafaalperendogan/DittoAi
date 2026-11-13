@@ -17,6 +17,9 @@ namespace
 	const COLORREF TOAST_COLOR_BORDER = RGB(60, 64, 67);
 	const COLORREF TOAST_COLOR_TITLE = RGB(255, 255, 255);
 	const COLORREF TOAST_COLOR_BODY = RGB(200, 202, 206);
+	const COLORREF TOAST_COLOR_HINT = RGB(138, 180, 248);
+
+	LPCTSTR CLICK_HINT = _T("Ayrıntılar için tıklayın");
 
 	COLORREF AccentColor(AiToastKind kind)
 	{
@@ -38,7 +41,7 @@ BEGIN_MESSAGE_MAP(CAiToastWnd, CWnd)
 END_MESSAGE_MAP()
 
 CAiToastWnd::CAiToastWnd()
-	: m_kind(AiToastKind::Info), m_dpi(96), m_fontDpi(0), m_alpha(FULL_ALPHA)
+	: m_kind(AiToastKind::Info), m_clickHint(false), m_clickTarget(NULL), m_dpi(96), m_fontDpi(0), m_alpha(FULL_ALPHA)
 {
 }
 
@@ -89,7 +92,7 @@ void CAiToastWnd::CreateFonts(int dpi)
 	m_fontDpi = dpi;
 }
 
-CSize CAiToastWnd::CalcLayout(CDC &dc, int width, CRect &titleRect, CRect &bodyRect)
+CSize CAiToastWnd::CalcLayout(CDC &dc, int width, CRect &titleRect, CRect &bodyRect, CRect &hintRect)
 {
 	int left = Scale(ACCENT_WIDTH + TOAST_PADDING);
 	int right = width - Scale(TOAST_PADDING);
@@ -117,12 +120,23 @@ CSize CAiToastWnd::CalcLayout(CDC &dc, int width, CRect &titleRect, CRect &bodyR
 		height = bodyRect.bottom;
 	}
 
+	hintRect.SetRectEmpty();
+	if (m_clickHint)
+	{
+		dc.SelectObject(&m_bodyFont);
+		int hintTop = height + Scale(6);
+		hintRect.SetRect(left, hintTop, right, hintTop);
+		dc.DrawText(CLICK_HINT, hintRect, DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX);
+		hintRect.right = right;
+		height = hintRect.bottom;
+	}
+
 	dc.SelectObject(pOld);
 
 	return CSize(width, height + Scale(TOAST_PADDING));
 }
 
-void CAiToastWnd::ShowToast(const CString &title, const CString &body, AiToastKind kind, UINT timeoutMs, int position)
+void CAiToastWnd::ShowToast(const CString &title, const CString &body, AiToastKind kind, UINT timeoutMs, int position, bool clickHint)
 {
 	if (EnsureCreated() == false)
 	{
@@ -135,6 +149,7 @@ void CAiToastWnd::ShowToast(const CString &title, const CString &body, AiToastKi
 	m_title = title;
 	m_body = body;
 	m_kind = kind;
+	m_clickHint = clickHint;
 
 	// Show on the monitor the user is working on (the one under the mouse).
 	CPoint cursor;
@@ -154,7 +169,7 @@ void CAiToastWnd::ShowToast(const CString &title, const CString &body, AiToastKi
 	CreateFonts(m_dpi);
 
 	CClientDC dc(this);
-	CSize size = CalcLayout(dc, Scale(TOAST_WIDTH), m_titleRect, m_bodyRect);
+	CSize size = CalcLayout(dc, Scale(TOAST_WIDTH), m_titleRect, m_bodyRect, m_hintRect);
 
 	bool left = position == 2 || position == 3;
 	bool top = position == 1 || position == 3;
@@ -224,6 +239,10 @@ void CAiToastWnd::OnTimer(UINT_PTR nIDEvent)
 void CAiToastWnd::OnLButtonUp(UINT nFlags, CPoint point)
 {
 	HideToast(false);
+	if (m_clickTarget != NULL)
+	{
+		::PostMessage(m_clickTarget, WM_AI_TOAST_CLICKED, 0, 0);
+	}
 }
 
 int CAiToastWnd::OnMouseActivate(CWnd *pDesktopWnd, UINT nHitTest, UINT message)
@@ -271,6 +290,14 @@ void CAiToastWnd::OnPaint()
 		dc.SetTextColor(TOAST_COLOR_BODY);
 		CRect bodyRect = m_bodyRect;
 		dc.DrawText(m_body, bodyRect, DT_WORDBREAK | DT_NOPREFIX | DT_EDITCONTROL | DT_END_ELLIPSIS);
+	}
+
+	if (m_clickHint)
+	{
+		dc.SelectObject(&m_bodyFont);
+		dc.SetTextColor(TOAST_COLOR_HINT);
+		CRect hintRect = m_hintRect;
+		dc.DrawText(CLICK_HINT, hintRect, DT_SINGLELINE | DT_NOPREFIX);
 	}
 
 	dc.SelectObject(pOldFont);

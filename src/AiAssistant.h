@@ -4,6 +4,7 @@
 #include "AiProviders.h"
 #include "AiToastWnd.h"
 #include "AiPickerWnd.h"
+#include "AiDialogs.h"
 
 // "Double Ctrl+C" AI assistant.
 //
@@ -48,6 +49,7 @@ protected:
 	afx_msg LRESULT OnPicked(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnAiResult(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnAiClipSaved(WPARAM wParam, LPARAM lParam);
+	afx_msg LRESULT OnToastClicked(WPARAM wParam, LPARAM lParam);
 	afx_msg void OnTimer(UINT_PTR nIDEvent);
 
 	struct ClipContent
@@ -67,8 +69,9 @@ protected:
 	bool WriteClipboardText(const CString &text);
 
 	enum class NotifyKind { Progress, Success, Error, Info };
-	void Notify(NotifyKind kind, const CString &title, const CString &body);
-	void ShowToast(const AiNotifySettings &settings, AiToastKind kind, const CString &title, const CString &body, bool sticky);
+	// forRun: the toast belongs to the current request, clicking it opens the request details
+	void Notify(NotifyKind kind, const CString &title, const CString &body, bool forRun = false);
+	void ShowToast(const AiNotifySettings &settings, AiToastKind kind, const CString &title, const CString &body, bool sticky, bool clickHint = false);
 
 	static DWORD WINAPI HookThreadProc(LPVOID param);
 	static LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
@@ -83,6 +86,10 @@ protected:
 	bool m_inSettings;
 	volatile LONG m_awaitingSave;
 	AiModelConfig m_runModel;	// model of the running request, for the token usage record
+	AiRunInfo m_run;			// last request, shown in the details window
+	int m_runCounter;
+	bool m_toastForRun;			// the visible toast belongs to m_run
+	CAiDetailDlg m_detail;
 	CString m_lastTitle;
 	CString m_lastResult;
 	CString m_lastWarning;

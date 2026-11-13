@@ -3,6 +3,9 @@
 // Small always-on-top notification ("toast") shown in a screen corner.
 // Never takes focus, so it does not disturb the app the user is typing in.
 
+// Posted to the click target when the user clicks the toast.
+#define WM_AI_TOAST_CLICKED	(WM_USER + 304)
+
 enum class AiToastKind
 {
 	Info,
@@ -18,8 +21,11 @@ public:
 
 	// timeoutMs == 0 keeps the toast visible until the next ShowToast/HideToast call.
 	// position: 0 bottom right, 1 top right, 2 bottom left, 3 top left
-	void ShowToast(const CString &title, const CString &body, AiToastKind kind, UINT timeoutMs, int position);
+	// clickHint adds a "click for details" line at the bottom.
+	void ShowToast(const CString &title, const CString &body, AiToastKind kind, UINT timeoutMs, int position, bool clickHint = false);
 	void HideToast(bool fade = true);
+
+	void SetClickTarget(HWND hWnd) { m_clickTarget = hWnd; }
 
 protected:
 	DECLARE_MESSAGE_MAP()
@@ -32,11 +38,14 @@ protected:
 	bool EnsureCreated();
 	void CreateFonts(int dpi);
 	int Scale(int value) const { return MulDiv(value, m_dpi, 96); }
-	CSize CalcLayout(CDC &dc, int width, CRect &titleRect, CRect &bodyRect);
+	CSize CalcLayout(CDC &dc, int width, CRect &titleRect, CRect &bodyRect, CRect &hintRect);
 
 	CString m_title;
 	CString m_body;
 	AiToastKind m_kind;
+	bool m_clickHint;
+	HWND m_clickTarget;
+	CRect m_hintRect;
 	int m_dpi;
 	int m_fontDpi;
 	int m_alpha;

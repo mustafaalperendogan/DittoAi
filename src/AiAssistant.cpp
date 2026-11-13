@@ -244,6 +244,7 @@ BEGIN_MESSAGE_MAP(CAiAssistant, CWnd)
 	ON_MESSAGE(WM_AI_PICKED, OnPicked)
 	ON_MESSAGE(WM_AI_RESULT, OnAiResult)
 	ON_MESSAGE(WM_AI_CLIP_SAVED, OnAiClipSaved)
+	ON_MESSAGE(WM_AI_TOAST_CLICKED, OnToastClicked)
 	ON_WM_TIMER()
 END_MESSAGE_MAP()
 
@@ -254,7 +255,7 @@ CAiAssistant &CAiAssistant::Instance()
 }
 
 CAiAssistant::CAiAssistant()
-	: m_targetWnd(NULL), m_busy(false), m_inSettings(false), m_awaitingSave(0), m_hookThread(NULL), m_hookThreadId(0)
+	: m_targetWnd(NULL), m_busy(false), m_inSettings(false), m_awaitingSave(0), m_runCounter(0), m_toastForRun(false), m_hookThread(NULL), m_hookThreadId(0)
 {
 }
 
@@ -275,6 +276,7 @@ void CAiAssistant::Start()
 			return;
 		}
 	}
+	m_toast.SetClickTarget(m_hWnd);
 
 	if (!m_config.Load())
 	{
@@ -292,6 +294,10 @@ void CAiAssistant::Stop()
 	if (m_picker.m_hWnd != NULL)
 	{
 		m_picker.DestroyWindow();
+	}
+	if (m_detail.m_hWnd != NULL)
+	{
+		m_detail.DestroyWindow();
 	}
 	if (m_toast.m_hWnd != NULL)
 	{
@@ -570,8 +576,10 @@ void CAiAssistant::OnTimer(UINT_PTR nIDEvent)
 		if (InterlockedExchange(&m_awaitingSave, 0) != 0)
 		{
 			// Ditto did not report saving it (e.g. clipboard monitoring is off); the text is on the clipboard anyway.
+			m_run.clipboardStatus = _T("Panoya kopyalandı, Ditto geçmişine kaydı doğrulanamadı");
+			m_detail.Update(m_run);
 			Notify(NotifyKind::Success, _T("Cevap panoda - Ctrl+V ile yapıştırın"),
-				m_lastTitle + _T(" · Ditto geçmişine kaydı doğrulanamadı") + (m_config.notify.showPreview ? _T("\n\n") + OneLine(m_lastResult, 160) : CString()));
+				m_lastTitle + _T(" · Ditto geçmişine kaydı doğrulanamadı") + (m_config.notify.showPreview ? _T("\n\n") + OneLine(m_lastResult, 160) : CString()), true);
 		}
 		return;
 	}
@@ -769,14 +777,36 @@ void CAiAssistant::Run(const CString &title, const CString &instruction, const A
 	InterlockedExchange(&m_awaitingSave, 0);
 	KillTimer(TIMER_SAVE_FALLBACK);
 
+	CString provider = AiModelConfig::ProviderName(model.provider);
+	int paren = provider.Find(_T(" ("));
+	if (paren > 0)
+	{
+		provider = provider.Left(paren);
+	}
+	m_run = AiRunInfo();
+	m_run.valid = true;
+	m_run.id = ++m_runCounter;
+	m_run.title = title;
+	m_run.instruction = instruction;
+	m_run.modelName = model.name;
+	m_run.modelDetail = provider + _T(" · ") + model.model;
+	m_run.isImage = m_clip.isImage;
+	m_run.imageWidth = m_clip.image.width;
+	m_run.imageHeight = m_clip.image.height;
+	m_run.inputText = m_clip.isImage ? CString() : m_clip.text;
+	m_run.started = CTime::GetCurrentTime();
+	m_run.startTick = ::GetTickCount64();
+
 	CString what = m_clip.isImage ? StrF(_T("Görsel %d × %d"), m_clip.image.width, m_clip.image.height) : OneLine(m_clip.text, 120);
-	Notify(NotifyKind::Progress, model.name + _T(" çalışıyor..."), title + _T("\n") + what);
+	Notify(NotifyKind::Progress, model.name + _T(" çalışıyor..."), title + _T("\n") + what, true);
 
 	if (AfxBeginThread(RequestThreadProc, job) == NULL)
 	{
 		delete job;
 		m_busy = false;
-		Notify(NotifyKind::Error, _T("İstek başlatılamadı"), CString());
+		m_run.state = AiRunInfo::State::Error;
+		m_run.error = _T("İstek başlatılamadı.");
+		Notify(NotifyKind::Error, _T("İstek başlatılamadı"), CString(), true);
 	}
 }
 
@@ -808,9 +838,17 @@ LRESULT CAiAssistant::OnAiResult(WPARAM wParam, LPARAM lParam)
 		AiUsageRecord(m_runModel, result->usageKnown, result->inputTokens, result->outputTokens);
 	}
 
+	m_run.durationMs = ::GetTickCount64() - m_run.startTick;
+	m_run.usageKnown = result->usageKnown;
+	m_run.inputTokens = result->inputTokens;
+	m_run.outputTokens = result->outputTokens;
+
 	if (!result->ok)
 	{
-		Notify(NotifyKind::Error, _T("Model cevap veremedi"), result->error);
+		m_run.state = AiRunInfo::State::Error;
+		m_run.error = result->error;
+		m_detail.Update(m_run);
+		Notify(NotifyKind::Error, _T("Model cevap veremedi"), result->error, true);
 		return 0;
 	}
 
@@ -820,16 +858,24 @@ LRESULT CAiAssistant::OnAiResult(WPARAM wParam, LPARAM lParam)
 	m_lastResult = text;
 	m_lastWarning = result->warning;
 
+	m_run.state = AiRunInfo::State::Success;
+	m_run.result = text;
+	m_run.warning = result->warning;
+
 	// waiting for Ditto's save thread to report the new clip
 	InterlockedExchange(&m_awaitingSave, 1);
 
 	if (!WriteClipboardText(text))
 	{
 		InterlockedExchange(&m_awaitingSave, 0);
-		Notify(NotifyKind::Error, _T("Pano kullanılamıyor"), _T("Model cevap verdi ama pano başka bir uygulama tarafından kilitli."));
+		m_run.clipboardStatus = _T("Pano kilitli olduğu için panoya yazılamadı");
+		m_detail.Update(m_run);
+		Notify(NotifyKind::Error, _T("Pano kullanılamıyor"), _T("Model cevap verdi ama pano başka bir uygulama tarafından kilitli."), true);
 		return 0;
 	}
 
+	m_run.clipboardStatus = _T("Panoya kopyalandı");
+	m_detail.Update(m_run);
 	SetTimer(TIMER_SAVE_FALLBACK, SAVE_FALLBACK_MS, NULL);
 	return 0;
 }
@@ -851,6 +897,9 @@ LRESULT CAiAssistant::OnAiClipSaved(WPARAM wParam, LPARAM lParam)
 
 	KillTimer(TIMER_SAVE_FALLBACK);
 
+	m_run.clipboardStatus = _T("Panoya kopyalandı ve Ditto'ya kaydedildi");
+	m_detail.Update(m_run);
+
 	CString body = m_lastTitle + _T(" · Ditto'ya kaydedildi");
 	if (m_lastWarning.IsEmpty() == FALSE)
 	{
@@ -860,7 +909,16 @@ LRESULT CAiAssistant::OnAiClipSaved(WPARAM wParam, LPARAM lParam)
 	{
 		body += _T("\n\n") + OneLine(m_lastResult, 160);
 	}
-	Notify(NotifyKind::Success, _T("Cevap hazır - Ctrl+V ile yapıştırın"), body);
+	Notify(NotifyKind::Success, _T("Cevap hazır - Ctrl+V ile yapıştırın"), body, true);
+	return 0;
+}
+
+LRESULT CAiAssistant::OnToastClicked(WPARAM wParam, LPARAM lParam)
+{
+	if (m_toastForRun && m_run.valid && !m_inSettings)
+	{
+		m_detail.Show(m_run, this);
+	}
 	return 0;
 }
 
@@ -897,36 +955,37 @@ bool CAiAssistant::WriteClipboardText(const CString &text)
 	return false;
 }
 
-void CAiAssistant::Notify(NotifyKind kind, const CString &title, const CString &body)
+void CAiAssistant::Notify(NotifyKind kind, const CString &title, const CString &body, bool forRun)
 {
 	const AiNotifySettings &n = m_config.notify;
+	m_toastForRun = forRun;
 	switch (kind)
 	{
 	case NotifyKind::Progress:
-		if (n.showProgress) ShowToast(n, AiToastKind::Info, title, body, true);
+		if (n.showProgress) ShowToast(n, AiToastKind::Info, title, body, true, forRun);
 		break;
 	case NotifyKind::Info:
-		if (n.showProgress) ShowToast(n, AiToastKind::Info, title, body, false);
+		if (n.showProgress) ShowToast(n, AiToastKind::Info, title, body, false, forRun);
 		break;
 	case NotifyKind::Success:
-		if (n.showSuccess) ShowToast(n, AiToastKind::Success, title, body, false);
+		if (n.showSuccess) ShowToast(n, AiToastKind::Success, title, body, false, forRun);
 		else m_toast.HideToast(true);	// remove the "working" toast
 		if (n.sound) ::MessageBeep(MB_ICONASTERISK);
 		break;
 	case NotifyKind::Error:
-		if (n.showErrors) ShowToast(n, AiToastKind::Error, title, body, false);
+		if (n.showErrors) ShowToast(n, AiToastKind::Error, title, body, false, forRun);
 		else m_toast.HideToast(true);
 		if (n.sound) ::MessageBeep(MB_ICONHAND);
 		break;
 	}
 }
 
-void CAiAssistant::ShowToast(const AiNotifySettings &settings, AiToastKind kind, const CString &title, const CString &body, bool sticky)
+void CAiAssistant::ShowToast(const AiNotifySettings &settings, AiToastKind kind, const CString &title, const CString &body, bool sticky, bool clickHint)
 {
 	UINT timeout = sticky ? 0 : (UINT)max(1, settings.durationSec) * 1000;
 	if (kind == AiToastKind::Error && !sticky)
 	{
 		timeout = max(timeout, 8000u);	// errors need time to read
 	}
-	m_toast.ShowToast(title, body, kind, timeout, settings.position);
+	m_toast.ShowToast(title, body, kind, timeout, settings.position, clickHint);
 }

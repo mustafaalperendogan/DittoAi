@@ -1476,3 +1476,206 @@ CAiSettingsDlg::~CAiSettingsDlg()
 		delete page.second;
 	}
 }
+
+// ===========================================================================
+// Request details
+
+namespace
+{
+	enum
+	{
+		IDC_D_TITLE = 5001, IDC_D_MODEL, IDC_D_STATE, IDC_D_TIME, IDC_D_TOKENS, IDC_D_INSTRUCTION,
+		IDC_D_INPUT_LABEL, IDC_D_INPUT, IDC_D_RESULT_LABEL, IDC_D_RESULT, IDC_D_COPY,
+	};
+
+	void ValueLabel(CAiDialogTemplate &t, WORD id, short x, short y, short cx, short cy, bool singleLine)
+	{
+		t.Control((WORD)0x0082, L"", id, SS_LEFT | SS_NOPREFIX | (singleLine ? SS_ENDELLIPSIS : 0), 0, x, y, cx, cy);
+	}
+
+	void ReadOnlyText(CAiDialogTemplate &t, WORD id, short x, short y, short cx, short cy)
+	{
+		t.Control((WORD)0x0081, L"", id, WS_TABSTOP | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_VSCROLL, WS_EX_CLIENTEDGE, x, y, cx, cy);
+	}
+}
+
+BEGIN_MESSAGE_MAP(CAiDetailDlg, CDialog)
+	ON_BN_CLICKED(IDC_D_COPY, OnCopyResult)
+END_MESSAGE_MAP()
+
+CAiDetailDlg::CAiDetailDlg()
+{
+	const short lx = 7, vx = 62, vw = 331, fullWidth = 386;
+	m_template.Begin(L"Yapay zeka - istek ayrıntısı", 400, 322);
+	m_template.Label(L"Eylem:", lx, 8, 52);
+	ValueLabel(m_template, IDC_D_TITLE, vx, 8, vw, 8, true);
+	m_template.Label(L"Model:", lx, 20, 52);
+	ValueLabel(m_template, IDC_D_MODEL, vx, 20, vw, 8, true);
+	m_template.Label(L"Durum:", lx, 32, 52);
+	ValueLabel(m_template, IDC_D_STATE, vx, 32, vw, 16, false);
+	m_template.Label(L"Zaman:", lx, 50, 52);
+	ValueLabel(m_template, IDC_D_TIME, vx, 50, vw, 8, true);
+	m_template.Label(L"Token:", lx, 62, 52);
+	ValueLabel(m_template, IDC_D_TOKENS, vx, 62, vw, 8, true);
+	m_template.Label(L"Talimat:", lx, 78, fullWidth);
+	ReadOnlyText(m_template, IDC_D_INSTRUCTION, lx, 88, fullWidth, 28);
+	m_template.Label(L"", lx, 122, fullWidth, 8, IDC_D_INPUT_LABEL);
+	ReadOnlyText(m_template, IDC_D_INPUT, lx, 132, fullWidth, 50);
+	m_template.Label(L"", lx, 188, fullWidth, 8, IDC_D_RESULT_LABEL);
+	ReadOnlyText(m_template, IDC_D_RESULT, lx, 198, fullWidth, 98);
+	m_template.Button(IDC_D_COPY, L"Cevabı kopyala", lx, 302, 80);
+	m_template.Button(IDCANCEL, L"Kapat", 343, 302, 50, 14, true);
+}
+
+void CAiDetailDlg::Show(const AiRunInfo &info, CWnd *pOwner)
+{
+	m_info = info;
+	if (m_hWnd == NULL)
+	{
+		if (!CreateIndirect(m_template.Get(), pOwner))
+		{
+			return;
+		}
+		ModifyStyleEx(0, WS_EX_APPWINDOW);	// taskbar button, so it cannot get lost behind other windows
+	}
+	else
+	{
+		Fill();
+	}
+	ShowWindow(SW_SHOWNORMAL);
+	::SetForegroundWindow(m_hWnd);
+}
+
+void CAiDetailDlg::Update(const AiRunInfo &info)
+{
+	if (m_hWnd != NULL && m_info.id == info.id)
+	{
+		m_info = info;
+		Fill();
+	}
+}
+
+BOOL CAiDetailDlg::OnInitDialog()
+{
+	CDialog::OnInitDialog();
+	for (int id : { IDC_D_INSTRUCTION, IDC_D_INPUT, IDC_D_RESULT })
+	{
+		SendDlgItemMessage(id, EM_SETLIMITTEXT, 0, 0);	// the default limit is 32K characters
+	}
+	Fill();
+	GetDlgItem(IDCANCEL)->SetFocus();
+	return FALSE;
+}
+
+void CAiDetailDlg::OnOK()
+{
+	DestroyWindow();
+}
+
+void CAiDetailDlg::OnCancel()
+{
+	DestroyWindow();
+}
+
+void CAiDetailDlg::Fill()
+{
+	const AiRunInfo &r = m_info;
+	bool running = r.state == AiRunInfo::State::Running;
+
+	SetDlgItemText(IDC_D_TITLE, r.title);
+	SetDlgItemText(IDC_D_MODEL, r.modelDetail.IsEmpty() ? r.modelName : r.modelName + _T("  (") + r.modelDetail + _T(")"));
+
+	CString state;
+	switch (r.state)
+	{
+	case AiRunInfo::State::Running: state = _T("Çalışıyor..."); break;
+	case AiRunInfo::State::Success: state = _T("Tamamlandı"); break;
+	case AiRunInfo::State::Error: state = _T("Hata"); break;
+	}
+	if (r.clipboardStatus.IsEmpty() == FALSE)
+	{
+		state += _T(" · ") + r.clipboardStatus;
+	}
+	if (r.warning.IsEmpty() == FALSE)
+	{
+		state += _T("\n") + r.warning;
+	}
+	SetDlgItemText(IDC_D_STATE, state);
+
+	CString time = r.started.Format(_T("%d.%m.%Y %H:%M:%S"));
+	if (!running)
+	{
+		CString duration;
+		duration.Format(_T("%.1f"), r.durationMs / 1000.0);
+		duration.Replace(_T('.'), _T(','));
+		time += _T(" · ") + duration + _T(" sn");
+	}
+	SetDlgItemText(IDC_D_TIME, time);
+
+	CString tokens;
+	if (r.usageKnown)
+	{
+		tokens.Format(_T("Girdi %s · çıktı %s · toplam %s"), (LPCTSTR)FormatCount(r.inputTokens),
+			(LPCTSTR)FormatCount(r.outputTokens), (LPCTSTR)FormatCount(r.inputTokens + r.outputTokens));
+	}
+	else
+	{
+		tokens = running ? _T("-") : _T("Sağlayıcı bildirmedi");
+	}
+	SetDlgItemText(IDC_D_TOKENS, tokens);
+
+	SetDlgItemText(IDC_D_INSTRUCTION, ToCrLf(r.instruction));
+
+	CString inputLabel;
+	if (r.isImage)
+	{
+		inputLabel.Format(_T("Gönderilen içerik: görsel, %d × %d piksel"), r.imageWidth, r.imageHeight);
+		SetDlgItemText(IDC_D_INPUT, _T("(Görsel burada gösterilmez.)"));
+	}
+	else
+	{
+		inputLabel.Format(_T("Gönderilen içerik: metin, %s karakter"), (LPCTSTR)FormatCount(r.inputText.GetLength()));
+		SetDlgItemText(IDC_D_INPUT, ToCrLf(r.inputText));
+	}
+	SetDlgItemText(IDC_D_INPUT_LABEL, inputLabel);
+
+	if (running)
+	{
+		SetDlgItemText(IDC_D_RESULT_LABEL, _T("Cevap:"));
+		SetDlgItemText(IDC_D_RESULT, _T("(Model çalışıyor, cevap gelince burada görünecek.)"));
+	}
+	else if (r.state == AiRunInfo::State::Error && r.result.IsEmpty())
+	{
+		SetDlgItemText(IDC_D_RESULT_LABEL, _T("Hata:"));
+		SetDlgItemText(IDC_D_RESULT, ToCrLf(r.error));
+	}
+	else
+	{
+		SetDlgItemText(IDC_D_RESULT_LABEL, _T("Cevap:"));
+		SetDlgItemText(IDC_D_RESULT, ToCrLf(r.result));
+	}
+
+	GetDlgItem(IDC_D_COPY)->EnableWindow(r.result.IsEmpty() == FALSE);
+}
+
+void CAiDetailDlg::OnCopyResult()
+{
+	CString text = ToCrLf(m_info.result);
+	if (text.IsEmpty() || !OpenClipboard())
+	{
+		return;
+	}
+	::EmptyClipboard();
+	size_t bytes = (text.GetLength() + 1) * sizeof(WCHAR);
+	HGLOBAL hMem = ::GlobalAlloc(GMEM_MOVEABLE, bytes);
+	if (hMem != NULL)
+	{
+		memcpy(::GlobalLock(hMem), (LPCWSTR)text, bytes);
+		::GlobalUnlock(hMem);
+		if (::SetClipboardData(CF_UNICODETEXT, hMem) == NULL)
+		{
+			::GlobalFree(hMem);
+		}
+	}
+	::CloseClipboard();
+}

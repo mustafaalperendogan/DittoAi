@@ -107,6 +107,59 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Request details, opened by clicking a notification of that request
+
+struct AiRunInfo
+{
+	enum class State { Running, Success, Error };
+
+	bool valid = false;
+	int id = 0;
+	State state = State::Running;
+	CString title;				// action name or custom instruction
+	CString instruction;
+	CString modelName;
+	CString modelDetail;		// provider · model id
+	bool isImage = false;
+	int imageWidth = 0;
+	int imageHeight = 0;
+	CString inputText;
+	CTime started;
+	ULONGLONG startTick = 0;
+	ULONGLONG durationMs = 0;
+	CString result;
+	CString error;
+	CString warning;
+	CString clipboardStatus;	// e.g. copied to the clipboard and saved to Ditto
+	bool usageKnown = false;
+	long long inputTokens = 0;
+	long long outputTokens = 0;
+};
+
+// Modeless; one instance is reused for every request.
+class CAiDetailDlg : public CDialog
+{
+public:
+	CAiDetailDlg();
+
+	void Show(const AiRunInfo &info, CWnd *pOwner);	// opens or refreshes, brings to front
+	void Update(const AiRunInfo &info);				// refreshes only if open and showing the same request
+
+protected:
+	virtual BOOL OnInitDialog();
+	virtual void OnOK();
+	virtual void OnCancel();
+
+	DECLARE_MESSAGE_MAP()
+	afx_msg void OnCopyResult();
+
+	void Fill();
+
+	CAiDialogTemplate m_template;
+	AiRunInfo m_info;
+};
+
+// ---------------------------------------------------------------------------
 // Action editor
 
 class CAiActionDlg : public CDialog
