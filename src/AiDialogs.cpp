@@ -890,7 +890,7 @@ namespace
 	{
 		IDC_S_MODELS = 2001, IDC_S_MODEL_ADD, IDC_S_MODEL_EDIT, IDC_S_MODEL_COPY, IDC_S_MODEL_DELETE,
 
-		IDC_S_DEF_TEXT = 2101, IDC_S_DEF_IMAGE, IDC_S_ACTIONS, IDC_S_ACTION_ADD, IDC_S_ACTION_EDIT, IDC_S_ACTION_DELETE, IDC_S_ACTION_UP, IDC_S_ACTION_DOWN,
+		IDC_S_DEF_TEXT = 2101, IDC_S_DEF_IMAGE, IDC_S_ACTIONS, IDC_S_ACTION_ADD, IDC_S_ACTION_EDIT, IDC_S_ACTION_COPY, IDC_S_ACTION_DELETE, IDC_S_ACTION_UP, IDC_S_ACTION_DOWN,
 
 		IDC_G_ENABLED = 2201, IDC_G_INTERVAL, IDC_G_PROGRESS, IDC_G_SUCCESS, IDC_G_ERRORS, IDC_G_PREVIEW, IDC_G_SOUND, IDC_G_POSITION, IDC_G_DURATION, IDC_G_SAMPLE, IDC_G_PATH,
 
@@ -1050,9 +1050,10 @@ namespace
 			m_template.ListView(IDC_S_ACTIONS, 7, 62, 312, 178);
 			m_template.Button(IDC_S_ACTION_ADD, L"Ekle...", 325, 62, 68);
 			m_template.Button(IDC_S_ACTION_EDIT, L"Düzenle...", 325, 80, 68);
-			m_template.Button(IDC_S_ACTION_DELETE, L"Sil", 325, 98, 68);
-			m_template.Button(IDC_S_ACTION_UP, L"Yukarı", 325, 122, 68);
-			m_template.Button(IDC_S_ACTION_DOWN, L"Aşağı", 325, 140, 68);
+			m_template.Button(IDC_S_ACTION_COPY, L"Çoğalt", 325, 98, 68);
+			m_template.Button(IDC_S_ACTION_DELETE, L"Sil", 325, 122, 68);
+			m_template.Button(IDC_S_ACTION_UP, L"Yukarı", 325, 146, 68);
+			m_template.Button(IDC_S_ACTION_DOWN, L"Aşağı", 325, 164, 68);
 		}
 
 		void Load() override
@@ -1137,6 +1138,18 @@ namespace
 			}
 		}
 
+		// The copy goes right below the original, the list order is the menu order.
+		afx_msg void OnCopy()
+		{
+			int sel = SelectedRow(m_list);
+			if (sel < 0) return;
+			AiAction action = m_config.actions[sel];
+			action.id = AiConfig::NewId();
+			action.name += _T(" (kopya)");
+			m_config.actions.insert(m_config.actions.begin() + sel + 1, action);
+			Refresh(sel + 1);
+		}
+
 		afx_msg void OnDelete()
 		{
 			int sel = SelectedRow(m_list);
@@ -1170,6 +1183,7 @@ namespace
 	BEGIN_MESSAGE_MAP(CActionsPage, CAiPage)
 		ON_BN_CLICKED(IDC_S_ACTION_ADD, OnAdd)
 		ON_BN_CLICKED(IDC_S_ACTION_EDIT, OnEdit)
+		ON_BN_CLICKED(IDC_S_ACTION_COPY, OnCopy)
 		ON_BN_CLICKED(IDC_S_ACTION_DELETE, OnDelete)
 		ON_BN_CLICKED(IDC_S_ACTION_UP, OnUp)
 		ON_BN_CLICKED(IDC_S_ACTION_DOWN, OnDown)
