@@ -1412,15 +1412,11 @@ namespace
 			std::sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) { return a.input + a.output > b.input + b.output; });
 
 			Row total;
+			total.name = _T("GENEL TOPLAM");
 			m_list.DeleteAllItems();
-			for (int i = 0; i < (int)rows.size(); i++)
+			for (const Row &r : rows)
 			{
-				const Row &r = rows[i];
-				m_list.InsertItem(i, r.name);
-				m_list.SetItemText(i, 1, FormatCount(r.requests));
-				m_list.SetItemText(i, 2, FormatCount(r.input));
-				m_list.SetItemText(i, 3, FormatCount(r.output));
-				m_list.SetItemText(i, 4, FormatCount(r.input + r.output));
+				AddRow(r);
 				total.requests += r.requests;
 				total.unknownRequests += r.unknownRequests;
 				total.input += r.input;
@@ -1434,14 +1430,41 @@ namespace
 			}
 			else
 			{
-				text.Format(_T("Toplam: %s istek · %s girdi + %s çıktı = %s token"), (LPCTSTR)FormatCount(total.requests),
-					(LPCTSTR)FormatCount(total.input), (LPCTSTR)FormatCount(total.output), (LPCTSTR)FormatCount(total.input + total.output));
+				// a line across every column, then the grand total
+				int line = m_list.InsertItem(m_list.GetItemCount(), Dashes(0));
+				for (int column = 1; column < m_list.GetHeaderCtrl()->GetItemCount(); column++)
+				{
+					m_list.SetItemText(line, column, Dashes(column));
+				}
+				AddRow(total);
 				if (total.unknownRequests > 0)
 				{
-					text.AppendFormat(_T("\n%d istekte sağlayıcı token sayısını bildirmedi, bu istekler toplama eklenemedi."), total.unknownRequests);
+					text.Format(_T("%d istekte sağlayıcı token sayısını bildirmedi, bu istekler toplama eklenemedi."), total.unknownRequests);
 				}
 			}
 			SetDlgItemText(IDC_U_TOTAL, text);
+		}
+
+		void AddRow(const Row &r)
+		{
+			int i = m_list.InsertItem(m_list.GetItemCount(), r.name);
+			m_list.SetItemText(i, 1, FormatCount(r.requests));
+			m_list.SetItemText(i, 2, FormatCount(r.input));
+			m_list.SetItemText(i, 3, FormatCount(r.output));
+			m_list.SetItemText(i, 4, FormatCount(r.input + r.output));
+		}
+
+		// as many dashes as fit in the column without being cut off with "..."
+		CString Dashes(int column)
+		{
+			int dash = max(1, m_list.GetStringWidth(_T("—")));
+			int count = max(1, (m_list.GetColumnWidth(column) - 16) / dash);
+			CString line;
+			for (int i = 0; i < count; i++)
+			{
+				line += _T("—");
+			}
+			return line;
 		}
 
 		afx_msg void OnPeriodChanged()
