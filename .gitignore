@@ -80,3 +80,4 @@ Debug/portable
 /bin
 /Dagitim
 *.pfx
+tools/DittoSyncServer/data/

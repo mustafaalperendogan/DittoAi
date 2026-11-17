@@ -139,6 +139,12 @@
     <ClCompile Include="src\AiUsage.cpp">
       <Filter>src</Filter>
     </ClCompile>
+    <ClCompile Include="src\DbSync.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\OptionsDatabase.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
     <ClCompile Include="src\DittoPopupWindow.cpp">
       <Filter>src</Filter>
     </ClCompile>
@@ -665,6 +671,12 @@
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="src\AiUsage.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\DbSync.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\OptionsDatabase.h">
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="src\DittoPopupWindow.h">

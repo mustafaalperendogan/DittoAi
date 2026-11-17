@@ -573,6 +573,8 @@
     <ClCompile Include="src\AiDialogs.cpp" />
     <ClCompile Include="src\AiToastWnd.cpp" />
     <ClCompile Include="src\AiUsage.cpp" />
+    <ClCompile Include="src\DbSync.cpp" />
+    <ClCompile Include="src\OptionsDatabase.cpp" />
     <ClCompile Include="src\DittoPopupWindow.cpp" />
     <ClCompile Include="src\DittoRulerRichEditCtrl.cpp" />
     <ClCompile Include="src\DittoWindow.cpp" />
@@ -852,6 +854,8 @@
     <ClInclude Include="src\AiDialogs.h" />
     <ClInclude Include="src\AiToastWnd.h" />
     <ClInclude Include="src\AiUsage.h" />
+    <ClInclude Include="src\DbSync.h" />
+    <ClInclude Include="src\OptionsDatabase.h" />
     <ClInclude Include="src\DittoPopupWindow.h" />
     <ClInclude Include="src\DittoRulerRichEditCtrl.h" />
     <ClInclude Include="src\DittoWindow.h" />

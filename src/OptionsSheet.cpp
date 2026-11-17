@@ -6,6 +6,7 @@
 #include "OptionsSheet.h"
 #include "OptionsKeyBoard.h"
 #include "OptionsGeneral.h"
+#include "OptionsDatabase.h"
 #include "OptionsQuickPaste.h"
 #include "OptionsStats.h"
 #include "OptionsTypes.h"
@@ -33,6 +34,7 @@ COptionsSheet::COptionsSheet(LPCTSTR pszCaption, CWnd* pParentWnd, UINT iSelectP
 	m_themeChanged = FALSE;
 	m_pKeyBoardOptions = NULL;
 	m_pGeneralOptions = NULL;
+	m_pDatabase = NULL;
 	//m_pQuickPasteOptions = NULL;
 	m_pCopyBuffers = NULL;
 	m_pStats = NULL;
@@ -48,6 +50,7 @@ COptionsSheet::COptionsSheet(LPCTSTR pszCaption, CWnd* pParentWnd, UINT iSelectP
 	EnableStackedTabs(TRUE);
 
 	m_pGeneralOptions = new COptionsGeneral;
+	m_pDatabase = new COptionsDatabase;
 	m_pKeyBoardOptions = new COptionsKeyBoard;
 	//m_pQuickPasteOptions = new COptionsQuickPaste;
 	m_pQuickPasteShortCuts = new CQuickPasteKeyboard;
@@ -58,6 +61,7 @@ COptionsSheet::COptionsSheet(LPCTSTR pszCaption, CWnd* pParentWnd, UINT iSelectP
 	m_pAbout = new CAbout;
 
 	AddPage(m_pGeneralOptions);
+	AddPage(m_pDatabase);
 	AddPage(m_pTypes);
 	AddPage(m_pKeyBoardOptions);
 	AddPage(m_pCopyBuffers);
@@ -77,6 +81,7 @@ COptionsSheet::COptionsSheet(LPCTSTR pszCaption, CWnd* pParentWnd, UINT iSelectP
 COptionsSheet::~COptionsSheet()
 {
 	delete m_pGeneralOptions;
+	delete m_pDatabase;
 	delete m_pKeyBoardOptions;
 	//delete m_pQuickPasteOptions;
 	delete m_pCopyBuffers;

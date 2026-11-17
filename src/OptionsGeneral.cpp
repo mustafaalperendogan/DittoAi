@@ -49,7 +49,6 @@ void COptionsGeneral::DoDataExchange(CDataExchange* pDX)
 	//DDX_Control(pDX, IDC_ENSURE, m_EnsureConnected);
 	//	DDX_Control(pDX, IDC_EDIT_SAVE_DELAY, m_SaveDelay);
 	DDX_Control(pDX, IDC_COMBO_LANGUAGE, m_cbLanguage);
-	DDX_Control(pDX, IDC_PATH, m_ePath);
 	DDX_Control(pDX, IDC_EXPIRE_AFTER, m_eExpireAfter);
 	DDX_Control(pDX, IDC_MAX_SAVED_COPIES, m_eMaxSavedCopies);
 	DDX_Control(pDX, IDC_EXPIRE, m_btExpire);
@@ -62,13 +61,11 @@ void COptionsGeneral::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_BUTTON_FONT, m_btFont);
 	DDX_Control(pDX, IDC_BUTTON_DEFAULT_FAULT, m_btDefaultButton);
 	DDX_Control(pDX, IDC_COMBO_POPUP_POSITION, m_popupPositionCombo);
-	DDX_Control(pDX, IDC_MFCLINK_ENV_VAR, m_envVarLink);
 }
 
 
 BEGIN_MESSAGE_MAP(COptionsGeneral, CPropertyPage)
 	//{{AFX_MSG_MAP(COptionsGeneral)
-	ON_BN_CLICKED(IDC_GET_PATH, OnGetPath)
 	ON_BN_CLICKED(IDC_BUTTON_ABOUT, OnButtonAbout)
 	//}}AFX_MSG_MAP
 	ON_BN_CLICKED(IDC_BUTTON_ADVANCED, &COptionsGeneral::OnBnClickedButtonAdvanced)
@@ -78,7 +75,6 @@ BEGIN_MESSAGE_MAP(COptionsGeneral, CPropertyPage)
 	ON_CBN_SELCHANGE(IDC_COMBO_THEME, &COptionsGeneral::OnCbnSelchangeComboTheme)
 	ON_BN_CLICKED(IDC_BUTTON_DEFAULT_FAULT, &COptionsGeneral::OnBnClickedButtonDefaultFault)
 	ON_BN_CLICKED(IDC_BUTTON_FONT, &COptionsGeneral::OnBnClickedButtonFont)
-	ON_EN_CHANGE(IDC_PATH, &COptionsGeneral::OnEnChangePath)
 	ON_BN_CLICKED(IDC_MAXIMUM, &COptionsGeneral::OnClickedMaximumEntries)
 	ON_BN_CLICKED(IDC_EXPIRE, &COptionsGeneral::OnClickedExpireEntries)
 END_MESSAGE_MAP()
@@ -171,10 +167,6 @@ BOOL COptionsGeneral::OnInitDialog()
 
 	theApp.m_Language.UpdateOptionGeneral(this);
 
-	//move after we translate so the en change gets called and we update with the correct translated value for environment variable
-	CString csPath = CGetSetOptions::GetDBPath(false);
-	m_ePath.SetWindowText(csPath);
-
 	return TRUE;
 }
 
@@ -257,65 +249,6 @@ BOOL COptionsGeneral::OnApply()
 		}
 	}
 
-	CString toSavePath;
-	m_ePath.GetWindowText(toSavePath);
-	CString resolvedPath = CGetSetOptions::ResolvePath(toSavePath);
-
-	bool bOpenNewDatabase = false;
-
-	if(resolvedPath.IsEmpty() == FALSE)
-	{
-		if(FileExists(resolvedPath) == FALSE)
-		{
-			CString cs;
-			cs.Format(_T("The database %s does not exist.\n\nCreate a new database?"), resolvedPath);
-
-			if(MessageBox(cs, _T("Ditto"), MB_OKCANCEL) == IDOK)
-			{
-				// -- create a new one
-				if(CreateDB(resolvedPath))
-				{
-					bOpenNewDatabase = true;
-				}
-				else
-					MessageBox(_T("Error Creating Database"));
-			}
-			else
-			{
-				return FALSE;
-			}
-		}
-		else
-		{
-			if(ValidDB(resolvedPath) == FALSE)
-			{
-				MessageBox(_T("Invalid Database"), _T("Ditto"), MB_OK);
-				m_ePath.SetFocus();
-				return FALSE;
-			}
-			else
-			{
-				bOpenNewDatabase = true;
-			}
-		}
-
-		if(bOpenNewDatabase)
-		{
-			CGetSetOptions::SetDBPath(toSavePath);
-
-			if(OpenDatabase(resolvedPath) == FALSE)
-			{
-				MessageBox(_T("Error Opening new database"), _T("Ditto"), MB_OK);
-				m_ePath.SetFocus();
-				return FALSE;
-			}
-			else
-			{
-				theApp.RefreshView();
-			}
-		}
-	}
-
 	CGetSetOptions::SetQuickPastePosition((int)m_popupPositionCombo.GetItemData(m_popupPositionCombo.GetCurSel()));
 
 	if (m_LogFont.lfWeight != 0)
@@ -369,47 +302,6 @@ BOOL COptionsGeneral::OnSetActive()
 //		m_btGetPath.EnableWindow(FALSE);
 //	}	
 //}
-
-void COptionsGeneral::OnGetPath() 
-{
-	OPENFILENAME	FileName;
-	TCHAR			szFileName[400];
-	TCHAR			szDir[400];
-
-	memset(&FileName, 0, sizeof(FileName));
-	memset(szFileName, 0, sizeof(szFileName));
-	memset(&szDir, 0, sizeof(szDir));
-	FileName.lStructSize = sizeof(FileName);
-	FileName.lpstrTitle = _T("Open Database");
-	FileName.Flags = OFN_HIDEREADONLY | OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-	FileName.nMaxFile = 400;
-	FileName.lpstrFile = szFileName;
-	FileName.lpstrInitialDir = szDir;
-	FileName.lpstrFilter = _T("Ditto Databases (*.db; *.mdb)\0*.db;*.mdb\0\0");
-	FileName.lpstrDefExt = _T("db");
-	FileName.hwndOwner = m_hWnd;
-
-	if(GetOpenFileName(&FileName) == 0)
-		return;
-
-	CString csPath(FileName.lpstrFile);
-	if(FileExists(csPath))
-	{
-		if(ValidDB(csPath) == FALSE)
-		{
-			MessageBox(_T("Invalid Database"), _T("Ditto"), MB_OK);
-			m_ePath.SetFocus();
-		}
-		else
-		{
-			m_ePath.SetWindowText(csPath);	
-		}
-	}
-	else
-	{
-		m_ePath.SetWindowText(csPath);
-	}
-}
 
 void COptionsGeneral::OnButtonAbout() 
 {
@@ -633,28 +525,6 @@ void COptionsGeneral::OnBnClickedButtonFont()
 //
 //	// TODO:  Add your control notification handler code here
 //}
-
-
-void COptionsGeneral::OnEnChangePath()
-{
-	if (m_originalEnvVariables == _T(""))
-	{
-		m_envVarLink.GetWindowText(m_originalEnvVariables);
-	}
-
-	CString toSavePath;
-	m_ePath.GetWindowText(toSavePath);
-
-	if (toSavePath.Find(_T("%")) >= 0)
-	{
-		CString resolvedPath = CGetSetOptions::ResolvePath(toSavePath);
-		m_envVarLink.SetWindowText(resolvedPath);		
-	}
-	else
-	{		
-		m_envVarLink.SetWindowText(m_originalEnvVariables);
-	}		
-}
 
 
 void COptionsGeneral::OnClickedMaximumEntries()

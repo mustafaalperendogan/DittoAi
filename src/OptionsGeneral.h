@@ -35,7 +35,6 @@ public:
 	CButton	m_btSendPasteMessage;
 	CButton	m_btHideDittoOnHotKey;
 	CNumberEdit	m_DescTextSize;
-	CEdit m_ePath;
 	CNumberEdit	m_eExpireAfter;
 	CNumberEdit	m_eMaxSavedCopies;
 	CButton	m_btMaximumCheck;
@@ -47,7 +46,6 @@ public:
 	CEdit m_ClipSeparator;
 	CEdit m_copyAppInclude;
 	CEdit m_copyAppExclude;
-	CMFCLinkCtrl m_envVarLink;
 	 
 	//}}AFX_DATA
 
@@ -70,7 +68,6 @@ protected:
 	CBrush m_brush;
 	LOGFONT m_LogFont;
 	CFont m_envVarFont;
-	CString m_originalEnvVariables;
 	
 	void FillThemes();	
 	void FillLanguages();
@@ -79,7 +76,6 @@ protected:
 	// Generated message map functions
 	//{{AFX_MSG(COptionsGeneral)
 	virtual BOOL OnInitDialog();
-	afx_msg void OnGetPath();
 	afx_msg void OnButtonAbout();
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()
@@ -99,7 +95,6 @@ public:
 	CComboBox m_popupPositionCombo;
 	//afx_msg void OnNMClickSyslinkEnvVarInfo(NMHDR *pNMHDR, LRESULT *pResult);
 	//afx_msg void OnEnChangePath();
-	afx_msg void OnEnChangePath();
 	afx_msg void OnClickedMaximumEntries();
 	afx_msg void OnClickedExpireEntries();
 };

@@ -541,3 +541,13 @@ bool AiConfig::Save(CString *error) const
 	}
 	return true;
 }
+
+CString AiProtectSecret(const CString &plain)
+{
+	return ProtectString(plain);
+}
+
+CString AiUnprotectSecret(const CString &stored)
+{
+	return UnprotectString(stored);
+}

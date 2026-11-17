@@ -117,3 +117,7 @@ struct AiConfig
 	static CString FilePath();
 	static CString NewId();
 };
+
+// Secrets stored in settings: encrypted with DPAPI for the current Windows user ("dpapi:<base64>").
+CString AiProtectSecret(const CString &plain);
+CString AiUnprotectSecret(const CString &stored);

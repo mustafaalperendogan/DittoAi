@@ -48,6 +48,7 @@ protected:
 
 	CPropertyPage *m_pKeyBoardOptions;
 	CPropertyPage *m_pGeneralOptions;
+	CPropertyPage *m_pDatabase;
 	CPropertyPage *m_pQuickPasteOptions;
 	CPropertyPage *m_pUtilites;
 	CPropertyPage *m_pStats;

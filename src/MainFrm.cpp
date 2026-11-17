@@ -18,6 +18,7 @@
 #include "DeleteClipData.h"
 #include "DatabaseUtilities.h"
 #include "AiAssistant.h"
+#include "DbSync.h"
 
 #ifdef _DEBUG
     #define new DEBUG_NEW
@@ -189,6 +190,7 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
     m_thread.Start(this);
 
 	CAiAssistant::Instance().Start();
+	CDbSync::Instance().Start();
 
     return 0;
 }
@@ -1238,6 +1240,7 @@ LRESULT CMainFrame::OnOpenCloseWindow(WPARAM wParam, LPARAM lParam)
 void CMainFrame::OnDestroy()
 {
 	CAiAssistant::Instance().Stop();
+	CDbSync::Instance().Stop();
 
 	if (m_pEditFrameWnd)
 	{
